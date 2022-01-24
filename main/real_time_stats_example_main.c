@@ -326,19 +326,11 @@ static void GSM_C(void *arg)
     for (int i = 0; i< NUM_OF_SPIN_TASKS; i++){
         xSemaphoreGive(sync_spin_task);
     }
-    printf("p3\n");
-    /*xSemaphoreGive(sync_stats_task);
-    vTaskDelay(pdMS_TO_TICKS(5000));*/
-    
+    printf("p3\n");    
     uart_param_config(UART_NUM_2, &uart_config);
     uart_set_pin(UART_NUM_2, PIN_TX, PIN_RX, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
     uart_driver_install(UART_NUM_2, BUF_SIZE * 2, 0, 0, NULL, 0);
-
-    //Teste DTR.
-    /*gpio_reset_pin(DTR_GPIO);
-    gpio_set_direction(DTR_GPIO, GPIO_MODE_DEF_OUTPUT);
-    gpio_set_level(DTR_GPIO,1);*/
-
+    
     //Reset Modem GSM
     gpio_reset_pin(4);
     gpio_set_direction(4, GPIO_MODE_DEF_OUTPUT);
@@ -361,25 +353,20 @@ static void GSM_C(void *arg)
     printf("p2\n");
     int len = 0;
     uint8_t redeb = 0;
-    char * ATmsg = "ATO0";
     char mensagem[100];
     sprintf(mensagem, "AT+IPR=9600\r");
 
     len = uart_read_bytes(UART_NUM_2, datap, BUF_SIZE, pdMS_TO_TICKS(100));
-    //uart_write_bytes(UART_NUM_2, (const char *) ATmsg, strlen(ATmsg));
-    //uart_set_baudrate(UART_NUM_2, 9600);
+    //Set Baud rate
     while (redeb == 0)
     {
-        uart_write_bytes(UART_NUM_2, (char *) mensagem, strlen(mensagem));
-        //uart_set_baudrate(UART_NUM_2, 9600);
+        uart_write_bytes(UART_NUM_2, (char *) mensagem, strlen(mensagem));        
         len = uart_read_bytes(UART_NUM_2, datap, BUF_SIZE, pdMS_TO_TICKS(100));
         if (len > 0)
         {
             printf("Leitura: %d\n", len);      
             printf("%ls \n", datap);            
             printf("Set auto-baud rate\n");
-            //ATmsg = "+++\n";
-            //uart_write_bytes(UART_NUM_2, (const char *) ATmsg, strlen(ATmsg));
             bzero(datap,1024);
             len = uart_read_bytes(UART_NUM_2, datap, BUF_SIZE, pdMS_TO_TICKS(100));
             printf("Leitura: %d\n", len);
@@ -397,7 +384,6 @@ static void GSM_C(void *arg)
     int tent = 0;
     int tentdf = 0;
     // Desativar ECHO (eco)
-    ATmsg = "ATO0";
     sprintf(mensagem, "ATE0\r");
 
     redeb = 0;
@@ -419,12 +405,8 @@ static void GSM_C(void *arg)
             redeb = 1;
         }
         len = uart_read_bytes(UART_NUM_2, datap, BUF_SIZE, pdMS_TO_TICKS(100));
-        
-        
-        //len = uart_read_bytes(UART_NUM_2, datap, BUF_SIZE, pdMS_TO_TICKS(100));
         xSemaphoreGive(sync_stats_task);
-        vTaskDelay(pdMS_TO_TICKS(500));
-        //len = uart_read_bytes(UART_NUM_2, datap, BUF_SIZE, pdMS_TO_TICKS(100));           
+        vTaskDelay(pdMS_TO_TICKS(500));                 
     }
 
     int ack=0;
@@ -437,7 +419,7 @@ static void GSM_C(void *arg)
                 ack = sendReceive("ATE0\r", "OK", 2, COMPARE_EQUAL);
                 break;
             case 1:
-                ack = sendReceive("AT+CGNSPWR=1\r", "OK", 2, COMPARE_EQUAL);
+                ack = sendReceive("AT+CGNSPWR=0\r", "OK", 2, COMPARE_EQUAL);
                 break;
             case 2:
                 ack = sendReceive("AT+CGSN\r", "", 5, COMPARE_NONE);
@@ -452,6 +434,19 @@ static void GSM_C(void *arg)
                 }
                 break;
             case 5:
+                //ack = sendReceive("AT+CGNAPN=?\r", "", 3, COMPARE_NONE);
+                ack = sendReceive("AT+CPSI?\r", "", 3, COMPARE_NONE);
+                break;
+            case 6:
+                ack = sendReceive("AT+CMNB?\r", "", 3, COMPARE_NONE);
+                break;
+            case 7:
+                ack = sendReceive("AT+CNMP=38\r", "", 3, COMPARE_NONE);
+                break;
+            case 8:
+                ack = sendReceive("AT+CMNB=1\r", "", 3, COMPARE_NONE);
+                break;
+            case 9:
                 ack = sendReceive("AT+CGNSINF\r", "CGNSINF", 3, COMPARE_CONTAINS);
                 state=2;
                 break;
