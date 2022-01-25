@@ -1,4 +1,4 @@
-# Install script for directory: C:/esp/esp-idf/Projetos/Freetest/real_time_stats
+# Install script for directory: C:/esp/Projetos/esp-LogQ
 
 # Set the install prefix
 if(NOT DEFINED CMAKE_INSTALL_PREFIX)
@@ -34,7 +34,7 @@ endif()
 
 if(NOT CMAKE_INSTALL_LOCAL_ONLY)
   # Include the install script for each subdirectory.
-  include("C:/esp/esp-idf/Projetos/Freetest/real_time_stats/build/esp-idf/cmake_install.cmake")
+  include("C:/esp/Projetos/esp-LogQ/build/esp-idf/cmake_install.cmake")
 
 endif()
 
@@ -46,5 +46,5 @@ endif()
 
 string(REPLACE ";" "\n" CMAKE_INSTALL_MANIFEST_CONTENT
        "${CMAKE_INSTALL_MANIFEST_FILES}")
-file(WRITE "C:/esp/esp-idf/Projetos/Freetest/real_time_stats/build/${CMAKE_INSTALL_MANIFEST}"
+file(WRITE "C:/esp/Projetos/esp-LogQ/build/${CMAKE_INSTALL_MANIFEST}"
      "${CMAKE_INSTALL_MANIFEST_CONTENT}")

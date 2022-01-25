@@ -1,13 +1,13 @@
 # Target labels
  bootloader
 # Source files and their labels
-C:/esp/esp-idf/Projetos/Freetest/real_time_stats/build/CMakeFiles/bootloader
-C:/esp/esp-idf/Projetos/Freetest/real_time_stats/build/CMakeFiles/bootloader.rule
-C:/esp/esp-idf/Projetos/Freetest/real_time_stats/build/CMakeFiles/bootloader-complete.rule
-C:/esp/esp-idf/Projetos/Freetest/real_time_stats/build/bootloader-prefix/src/bootloader-stamp/bootloader-install.rule
-C:/esp/esp-idf/Projetos/Freetest/real_time_stats/build/bootloader-prefix/src/bootloader-stamp/bootloader-mkdir.rule
-C:/esp/esp-idf/Projetos/Freetest/real_time_stats/build/bootloader-prefix/src/bootloader-stamp/bootloader-download.rule
-C:/esp/esp-idf/Projetos/Freetest/real_time_stats/build/bootloader-prefix/src/bootloader-stamp/bootloader-update.rule
-C:/esp/esp-idf/Projetos/Freetest/real_time_stats/build/bootloader-prefix/src/bootloader-stamp/bootloader-patch.rule
-C:/esp/esp-idf/Projetos/Freetest/real_time_stats/build/bootloader-prefix/src/bootloader-stamp/bootloader-configure.rule
-C:/esp/esp-idf/Projetos/Freetest/real_time_stats/build/bootloader-prefix/src/bootloader-stamp/bootloader-build.rule
+C:/esp/Projetos/esp-LogQ/build/CMakeFiles/bootloader
+C:/esp/Projetos/esp-LogQ/build/CMakeFiles/bootloader.rule
+C:/esp/Projetos/esp-LogQ/build/CMakeFiles/bootloader-complete.rule
+C:/esp/Projetos/esp-LogQ/build/bootloader-prefix/src/bootloader-stamp/bootloader-install.rule
+C:/esp/Projetos/esp-LogQ/build/bootloader-prefix/src/bootloader-stamp/bootloader-mkdir.rule
+C:/esp/Projetos/esp-LogQ/build/bootloader-prefix/src/bootloader-stamp/bootloader-download.rule
+C:/esp/Projetos/esp-LogQ/build/bootloader-prefix/src/bootloader-stamp/bootloader-update.rule
+C:/esp/Projetos/esp-LogQ/build/bootloader-prefix/src/bootloader-stamp/bootloader-patch.rule
+C:/esp/Projetos/esp-LogQ/build/bootloader-prefix/src/bootloader-stamp/bootloader-configure.rule
+C:/esp/Projetos/esp-LogQ/build/bootloader-prefix/src/bootloader-stamp/bootloader-build.rule

@@ -318,6 +318,45 @@ int sendReceive(char * sendCmd, char * waitResp, int trys, COMPARE bCompare)
     return -99;
 }
 
+uint8_t pin_reset_ok = 0;
+void GSM_reset (int act)
+{
+    if(pin_reset_ok == 0)
+    {
+        gpio_reset_pin(4);
+        gpio_set_direction(4, GPIO_MODE_DEF_OUTPUT);
+        pin_reset_ok = 1;
+    }   
+    switch (act){
+        // Reset do modem
+        case 0:
+            gpio_set_level(4,1);
+            xSemaphoreGive(sync_stats_task);
+            vTaskDelay(pdMS_TO_TICKS(1500));
+            gpio_set_level(4,0);
+            printf("\rReset Modem GSM\n");
+            xSemaphoreGive(sync_stats_task);
+            vTaskDelay(pdMS_TO_TICKS(5000));
+            gpio_set_level(4,1);
+            xSemaphoreGive(sync_stats_task);
+            vTaskDelay(pdMS_TO_TICKS(1500));
+            gpio_set_level(4,0);
+            break;
+        // Ligar o modem
+        case 1:
+            gpio_set_level(4,1);
+            xSemaphoreGive(sync_stats_task);
+            vTaskDelay(pdMS_TO_TICKS(1500));
+            gpio_set_level(4,0);
+            printf("\rPulse Modem GSM\n");
+            break;
+        default:
+            printf("\rInvalid!\n");
+            break;
+    }
+    
+}
+
 static void GSM_C(void *arg)
 {
     xSemaphoreTake(sync_stats_task, portMAX_DELAY);
@@ -332,31 +371,22 @@ static void GSM_C(void *arg)
     uart_driver_install(UART_NUM_2, BUF_SIZE * 2, 0, 0, NULL, 0);
     
     //Reset Modem GSM
-    gpio_reset_pin(4);
-    gpio_set_direction(4, GPIO_MODE_DEF_OUTPUT);
-    gpio_set_level(4,1);
+    GSM_reset(0);
+    
     xSemaphoreGive(sync_stats_task);
-    vTaskDelay(pdMS_TO_TICKS(1500));
-    gpio_set_level(4,0);
-    printf("\rReset Modem GSM\n");
-    xSemaphoreGive(sync_stats_task);
-    vTaskDelay(pdMS_TO_TICKS(5000));
-    gpio_set_level(4,1);
-    xSemaphoreGive(sync_stats_task);
-    vTaskDelay(pdMS_TO_TICKS(1500));
-    gpio_set_level(4,0);
-
-    xSemaphoreGive(sync_stats_task);
-    vTaskDelay(pdMS_TO_TICKS(1000));
-        
+    vTaskDelay(pdMS_TO_TICKS(1000));    
     
     printf("p2\n");
     int len = 0;
     uint8_t redeb = 0;
-    char mensagem[100];
-    sprintf(mensagem, "AT+IPR=9600\r");
-
+    uint8_t retry = 0;
+    char mensagem[100];    
     len = uart_read_bytes(UART_NUM_2, datap, BUF_SIZE, pdMS_TO_TICKS(100));
+    printf("Leitura: %d\n", len);      
+    printf("%ls \n", datap); 
+    len = 0;
+
+    sprintf(mensagem, "AT+IPR=9600\r");
     //Set Baud rate
     while (redeb == 0)
     {
@@ -372,6 +402,14 @@ static void GSM_C(void *arg)
             printf("Leitura: %d\n", len);
             redeb = 1;
         }
+        else if(len == 0)
+        {
+            retry++;
+        }
+        else if(retry == 5)
+        {
+            GSM_reset(1);
+        }
         printf("Set auto-baud rate\n");
         xSemaphoreGive(sync_stats_task);
         vTaskDelay(pdMS_TO_TICKS(2500));
@@ -379,7 +417,6 @@ static void GSM_C(void *arg)
     printf("Baud rate configurado.\n");        
     xSemaphoreGive(sync_stats_task);
     vTaskDelay(pdMS_TO_TICKS(50));
-    //uart_write_bytes(UART_NUM_2, (const char *) "AT+IPR=9600\n", 12);
     int men = 0;
     int tent = 0;
     int tentdf = 0;
@@ -475,6 +512,7 @@ void app_main(void)
     sync_spin_task = xSemaphoreCreateCounting(NUM_OF_SPIN_TASKS, 0);
     sync_stats_task = xSemaphoreCreateBinary();
 
+    
     //Create spin tasks
     for (int i = 0; i < NUM_OF_SPIN_TASKS; i++) {
         snprintf(task_names[i], configMAX_TASK_NAME_LEN, "spin%d", i);
