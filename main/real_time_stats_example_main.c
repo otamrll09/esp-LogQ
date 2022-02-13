@@ -43,6 +43,7 @@
 static char task_names[NUM_OF_SPIN_TASKS][configMAX_TASK_NAME_LEN];
 static SemaphoreHandle_t sync_spin_task;
 static SemaphoreHandle_t sync_stats_task;
+QueueHandle_t xQueueCaboGPS;
 
 uart_config_t uart_config = {
     .baud_rate = 9600,
@@ -221,17 +222,18 @@ static void blink_tsk(void *arg)
     }
 }
 
+typedef struct GPS_Inf
+{
+ char UTCdt[18];
+ char latit[10];
+ char longi[11];
+ char status[256];
+} GPSDados;
 
-/*
-sendReceive()
-retorno:
-    <0 = erro
-    0  = comando recebido ok
-
-*/
 typedef enum{
     COMPARE_NONE=0,
     COMPARE_EQUAL,
+    COMPARE_RETURN,
     COMPARE_CONTAINS,
 }COMPARE;
 char recBuff[256];
@@ -242,6 +244,8 @@ int sendReceive(char * sendCmd, char * waitResp, int trys, COMPARE bCompare)
     int idx = 0; 
     int trysTmp=0;
     char *recStr=0;
+    //GPSDados envio;
+    GPSDados *pvEnvio = malloc(sizeof(GPSDados));
     
     len = strlen(sendCmd);
     if (len > 256) {
@@ -275,6 +279,8 @@ int sendReceive(char * sendCmd, char * waitResp, int trys, COMPARE bCompare)
                 if (idx>1) {
                     recBuff[idx] = '\0';
                     printf("\t%s\n", recBuff);
+                    strcpy(pvEnvio->status, recBuff);
+                    xQueueSend(xQueueCaboGPS, pvEnvio, 1000);
 
                     // Cai fora quandoi receber qualquer coisa e não queira esperar algo
                     if ((bCompare == COMPARE_NONE) || (strlen(waitResp) == 0)) {
@@ -294,6 +300,14 @@ int sendReceive(char * sendCmd, char * waitResp, int trys, COMPARE bCompare)
                         if (recStr != 0) {
                             return (int)strlen(recBuff);
                         }
+                    }
+
+                    //Retorna a resposta para ser tratada.
+                    else if (bCompare == COMPARE_RETURN){
+                        //strcpy(pvEnvio->status, recBuff);
+                        printf("\t%s\n", recBuff);
+                        //xQueueSend(xQueueCaboGPS, pvEnvio, 1000);                        
+                        return (int)strlen(recBuff);
                     }
                 }
 
@@ -353,7 +367,7 @@ static void GSM_C(void *arg)
     printf("p2\n");
     int len = 0;
     uint8_t redeb = 0;
-    char mensagem[100];
+    char mensagem[256];
     sprintf(mensagem, "AT+IPR=9600\r");
 
     len = uart_read_bytes(UART_NUM_2, datap, BUF_SIZE, pdMS_TO_TICKS(100));
@@ -411,7 +425,151 @@ static void GSM_C(void *arg)
 
     int ack=0;
     int state=0;
-    while (1) {    
+    char *impres;
+    GPSDados *caboGPS = malloc(sizeof(GPSDados));
+    char *verif = 0;    
+    int col = 0;
+    int bg = 0;
+    char data[25];    
+    struct datasimpl
+    {
+        char latitu[25];
+        char longitu[25];
+        char ano[5];
+        char mes[3];
+        char dia[3];
+        char horap[6];
+    };
+    struct datasimpl GPSuser;
+    
+    while (1)
+    {
+        xSemaphoreGive(sync_stats_task);
+        vTaskDelay(pdMS_TO_TICKS(1500));
+        printf("p4\n");
+        switch (state)
+        {
+        case 0:
+            ack = sendReceive("AT+CGNSPWR?\r", "",3, COMPARE_RETURN);
+            //ack = sendReceive("AT+CPSI?\r", "", 3, COMPARE_NONE);
+            xQueueReceive(xQueueCaboGPS, caboGPS, 300);
+            printf("Status GPS:\n%s\n", caboGPS->status);
+            verif = strstr(caboGPS->status, "0");
+            if(verif != 0)
+            {
+                ack = sendReceive("AT+CGNSPWR=1\r", "",3, COMPARE_NONE);
+                verif = 0;
+            }
+            else
+                state = 1;
+            break;
+        case 1:
+            ack = sendReceive("AT+CGNSINF\r", "",3, COMPARE_RETURN);
+            xQueueReceive(xQueueCaboGPS, caboGPS, 300);
+            printf("Status GPS:\n%s\n", caboGPS->status);
+            //sprintf(mensagem, "ATE0\r");
+            //
+            //
+            state = 2;
+            break;
+        case 2:
+            sprintf(mensagem, caboGPS->status);
+            
+            if(mensagem[6] == 'N')
+            {
+                col = 0;
+                bg = 0;
+                // Tratamento baseado na mesagem padrão enviada pelo módulo, segue exemplo modificado abaixo:
+                // +CGNSINF: 1,1,20220212223745.000,-00.000000,-00.000000,591.395,0.00,,0,,1.0,1.4,0.9,,10,,3.6,4.0
+                for(int i = 0; mensagem[i] != '\0'; i++ )
+                {
+                    if(mensagem[i] == ',')
+                    {                        
+                        col++;
+                        bg = i + 1;                        
+                    }
+                    else if (col == 2)
+                    {
+                        data[i - bg] = mensagem[i];
+                        if(mensagem[i+1] == ',')
+                        {                        
+                            data[i + 1 - bg] = '\0';                   
+                        }                
+                    }
+                    else if (col == 3)
+                    {
+                        GPSuser.latitu[i - bg] = mensagem[i];
+                        if(mensagem[i+1] == ',')
+                        {                        
+                            GPSuser.latitu[i + 1 - bg] = '\0';                   
+                        } 
+                    }
+                    else if (col == 4)
+                    {
+                        GPSuser.longitu[i - bg] = mensagem[i];
+                        if(mensagem[i+1] == ',')
+                        {                        
+                            GPSuser.longitu[i + 1 - bg] = '\0';                   
+                        } 
+                    }
+                }
+                for(int i = 0; i < 14; i++)
+                {
+                    if(i <= 3)
+                    {
+                        GPSuser.ano[i] = data[i];
+                        if(i + 1 == 4)
+                        {
+                            GPSuser.ano[i + 1] = '\0';
+                        }
+                    }
+                    else if (i > 3 && i < 6)
+                    {
+                        GPSuser.mes[i-4] = data[i];
+                        if(i + 1 == 6)
+                        {
+                            GPSuser.mes[i - 3] = '\0';
+                        }
+                    }
+                    else if (i > 5 && i < 8)
+                    {
+                        GPSuser.dia[i-6] = data[i];
+                        if(i + 1 == 8)
+                        {
+                            GPSuser.dia[i - 5] = '\0';
+                        }
+                    }
+                    else if (i > 7)
+                    {
+                        GPSuser.horap[i-8] = data[i];
+                        if(i + 1 == 14)
+                        {
+                            GPSuser.horap[i - 7] = '\0';
+                        }
+                    }
+                }
+
+                // Linhas de Teste
+                printf("Dados: \n");
+                //printf("Data: %s \n", data);
+                printf("Hora, Dia, Mes, Ano \n %s %s/%s/%s \n", GPSuser.horap, GPSuser.dia, GPSuser.mes, GPSuser.ano);
+                printf("Latitude: %s \n", GPSuser.latitu);
+                printf("Longitude: %s \n", GPSuser.longitu);
+                //                
+                
+            }
+            else
+                printf("FAIL\n");                      
+            state = 1;
+            break;
+        default:
+            state=0;
+            continue;
+        }
+    }
+    
+    
+    /*while (1) {    
         xSemaphoreGive(sync_stats_task);
         vTaskDelay(pdMS_TO_TICKS(1500));    
         switch (state) {
@@ -460,6 +618,19 @@ static void GSM_C(void *arg)
         else {
             printf("Erro = %d\n", ack);
         }   
+    }*/
+
+}
+
+void xTaskFunction (void * pvParameters)
+{
+    xSemaphoreTake(sync_stats_task, portMAX_DELAY);
+    xSemaphoreGive(sync_stats_task);
+    for(;;)
+    {
+        printf("Hello Wolrd\n");
+        //xSemaphoreGive(sync_stats_task);
+        vTaskDelay(pdMS_TO_TICKS(1803));
     }    
 }
 
@@ -468,8 +639,7 @@ void app_main(void)
 {
     
     //Allow other core to finish initialization
-    vTaskDelay(pdMS_TO_TICKS(100));
-
+    vTaskDelay(pdMS_TO_TICKS(100));    
 
     //Create semaphores to synchronize
     sync_spin_task = xSemaphoreCreateCounting(NUM_OF_SPIN_TASKS, 0);
@@ -480,13 +650,33 @@ void app_main(void)
         snprintf(task_names[i], configMAX_TASK_NAME_LEN, "spin%d", i);
         xTaskCreatePinnedToCore(spin_task, task_names[i], 1024, NULL, SPIN_TASK_PRIO, NULL, tskNO_AFFINITY);
     }
+    // Criacão Queues    
+    struct GPS_Inf *pxMessage;
 
+    xQueueCaboGPS = xQueueCreate(100, 2*sizeof(struct GPS_Inf));
+    if(xQueueCaboGPS == 0){
+        for(;;){printf("\nERROR QUEUE CABOGPS CREATE\n");}   
+    }
+
+    printf("\nQUEUE PASS\n");
+    
+    //Criacão de Tasks
+
+    //xTaskCreate(xTaskFunction,"TaskTest", 16000, NULL, STATS_TASK_PRIO, NULL );    
     //Create and start stats task
     xTaskCreatePinnedToCore(blink_tsk, "blinkOMM1", 4096, NULL, STATS_TASK_PRIO, NULL, tskNO_AFFINITY);
     //xTaskCreatePinnedToCore(stats_task, "stats", 4096, NULL, STATS_TASK_PRIO, NULL, tskNO_AFFINITY);
     xTaskCreatePinnedToCore(GSM_C, "GSM", 4096, NULL, STATS_TASK_PRIO, NULL, tskNO_AFFINITY);
+
+    printf("TASK CREATE PASS\n");
     
     xSemaphoreGive(sync_stats_task);
+    //vTaskStartScheduler();
+    while (1)
+    {
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+    
 }
 
 
