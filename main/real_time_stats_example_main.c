@@ -332,6 +332,41 @@ int sendReceive(char * sendCmd, char * waitResp, int trys, COMPARE bCompare)
     return -99;
 }
 
+
+void GSM_Reset(int tock)
+{
+    if(tock == 2)
+    {
+        gpio_set_level(4,1);
+        xSemaphoreGive(sync_stats_task);
+        vTaskDelay(pdMS_TO_TICKS(1500));
+        gpio_set_level(4,0);
+        printf("\rReset Modem GSM\n");
+        xSemaphoreGive(sync_stats_task);
+        vTaskDelay(pdMS_TO_TICKS(5000));
+        gpio_set_level(4,1);
+        xSemaphoreGive(sync_stats_task);
+        vTaskDelay(pdMS_TO_TICKS(1500));
+        gpio_set_level(4,0);
+        xSemaphoreGive(sync_stats_task);
+        vTaskDelay(pdMS_TO_TICKS(1000));
+    }
+    else if (tock == 1)
+    {
+        printf("\rTurn ON/OFF Modem GSM\n");
+        gpio_set_level(4,1);
+        xSemaphoreGive(sync_stats_task);
+        vTaskDelay(pdMS_TO_TICKS(1500));
+        gpio_set_level(4,0);
+        xSemaphoreGive(sync_stats_task);
+        vTaskDelay(pdMS_TO_TICKS(1000));
+    }
+    else
+    {
+        printf("\rInvalid Reset\n");
+    }
+}
+
 static void GSM_C(void *arg)
 {
     xSemaphoreTake(sync_stats_task, portMAX_DELAY);
@@ -340,14 +375,18 @@ static void GSM_C(void *arg)
     for (int i = 0; i< NUM_OF_SPIN_TASKS; i++){
         xSemaphoreGive(sync_spin_task);
     }
-    printf("p3\n");    
+    printf("p1\n");
+    int errc = 0;
+
+    // Set serial ESP32 e SIM7070G       
     uart_param_config(UART_NUM_2, &uart_config);
     uart_set_pin(UART_NUM_2, PIN_TX, PIN_RX, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
     uart_driver_install(UART_NUM_2, BUF_SIZE * 2, 0, 0, NULL, 0);
     
     //Reset Modem GSM
-    gpio_reset_pin(4);
-    gpio_set_direction(4, GPIO_MODE_DEF_OUTPUT);
+    //gpio_reset_pin(4);
+    //gpio_set_direction(4, GPIO_MODE_DEF_OUTPUT);
+    /*
     gpio_set_level(4,1);
     xSemaphoreGive(sync_stats_task);
     vTaskDelay(pdMS_TO_TICKS(1500));
@@ -362,16 +401,20 @@ static void GSM_C(void *arg)
 
     xSemaphoreGive(sync_stats_task);
     vTaskDelay(pdMS_TO_TICKS(1000));
-        
+    */
+
+    GSM_Reset(2);
     
     printf("p2\n");
     int len = 0;
     uint8_t redeb = 0;
     char mensagem[256];
     sprintf(mensagem, "AT+IPR=9600\r");
-
     len = uart_read_bytes(UART_NUM_2, datap, BUF_SIZE, pdMS_TO_TICKS(100));
+
     //Set Baud rate
+    errc = 0;
+    printf("Set auto-baud rate");
     while (redeb == 0)
     {
         uart_write_bytes(UART_NUM_2, (char *) mensagem, strlen(mensagem));        
@@ -386,7 +429,13 @@ static void GSM_C(void *arg)
             printf("Leitura: %d\n", len);
             redeb = 1;
         }
-        printf("Set auto-baud rate\n");
+        else if(errc == 50)
+            GSM_Reset(1);
+        else
+        {
+            printf(" .");
+            errc++;
+        }        
         xSemaphoreGive(sync_stats_task);
         vTaskDelay(pdMS_TO_TICKS(2500));
     }
@@ -394,21 +443,21 @@ static void GSM_C(void *arg)
     xSemaphoreGive(sync_stats_task);
     vTaskDelay(pdMS_TO_TICKS(50));
     //uart_write_bytes(UART_NUM_2, (const char *) "AT+IPR=9600\n", 12);
-    int men = 0;
-    int tent = 0;
-    int tentdf = 0;
+    //int men = 0;
+    //int tent = 0;
+    //int tentdf = 0;
     // Desativar ECHO (eco)
     sprintf(mensagem, "ATE0\r");
-
+    printf("Escrita ECHO");
+    errc = 0;
     redeb = 0;
     len = 0;
     while (redeb == 0)
     {
         uart_write_bytes(UART_NUM_2, (char *) mensagem, strlen(mensagem));
         uart_wait_tx_done(UART_NUM_2, pdMS_TO_TICKS(500));
-        men = 1;
-        printf("Escrita ECHO \n");
-        tent = 0;
+        //men = 1;        
+        //tent = 0;
         if (len > 0)
         {
             printf("Leitura: %d\n", len);      
@@ -418,18 +467,28 @@ static void GSM_C(void *arg)
             printf("Leitura: %d\n", len);
             redeb = 1;
         }
+        else if( errc == 15)
+            GSM_Reset(1);
+        else
+        {
+            printf(" .");
+            errc++;
+        }
         len = uart_read_bytes(UART_NUM_2, datap, BUF_SIZE, pdMS_TO_TICKS(100));
         xSemaphoreGive(sync_stats_task);
-        vTaskDelay(pdMS_TO_TICKS(500));                 
+        vTaskDelay(pdMS_TO_TICKS(1000));                 
     }
 
+    // Inicio principais funções
+    errc = 0;
+
     int ack=0;
-    int state=0;
-    char *impres;
+    int state=0;    
     GPSDados *caboGPS = malloc(sizeof(GPSDados));
     char *verif = 0;    
     int col = 0;
     int bg = 0;
+    int vtst = 0;
     char data[25];    
     struct datasimpl
     {
@@ -441,12 +500,12 @@ static void GSM_C(void *arg)
         char horap[6];
     };
     struct datasimpl GPSuser;
-    
+    printf("p3\n");
+
     while (1)
     {
         xSemaphoreGive(sync_stats_task);
-        vTaskDelay(pdMS_TO_TICKS(1500));
-        printf("p4\n");
+        vTaskDelay(pdMS_TO_TICKS(1500));        
         switch (state)
         {
         case 0:
@@ -466,7 +525,7 @@ static void GSM_C(void *arg)
         case 1:
             ack = sendReceive("AT+CGNSINF\r", "",3, COMPARE_RETURN);
             xQueueReceive(xQueueCaboGPS, caboGPS, 300);
-            printf("Status GPS:\n%s\n", caboGPS->status);
+            //printf("Status GPS:\n%s\n", caboGPS->status);
             //sprintf(mensagem, "ATE0\r");
             //
             //
@@ -513,54 +572,91 @@ static void GSM_C(void *arg)
                         } 
                     }
                 }
-                for(int i = 0; i < 14; i++)
+                if(strlen(data) != 18)
                 {
-                    if(i <= 3)
-                    {
-                        GPSuser.ano[i] = data[i];
-                        if(i + 1 == 4)
-                        {
-                            GPSuser.ano[i + 1] = '\0';
-                        }
-                    }
-                    else if (i > 3 && i < 6)
-                    {
-                        GPSuser.mes[i-4] = data[i];
-                        if(i + 1 == 6)
-                        {
-                            GPSuser.mes[i - 3] = '\0';
-                        }
-                    }
-                    else if (i > 5 && i < 8)
-                    {
-                        GPSuser.dia[i-6] = data[i];
-                        if(i + 1 == 8)
-                        {
-                            GPSuser.dia[i - 5] = '\0';
-                        }
-                    }
-                    else if (i > 7)
-                    {
-                        GPSuser.horap[i-8] = data[i];
-                        if(i + 1 == 14)
-                        {
-                            GPSuser.horap[i - 7] = '\0';
-                        }
-                    }
+                    printf("Sincronizando GPS...\n");
                 }
-
-                // Linhas de Teste
-                printf("Dados: \n");
-                //printf("Data: %s \n", data);
-                printf("Hora, Dia, Mes, Ano \n %s %s/%s/%s \n", GPSuser.horap, GPSuser.dia, GPSuser.mes, GPSuser.ano);
-                printf("Latitude: %s \n", GPSuser.latitu);
-                printf("Longitude: %s \n", GPSuser.longitu);
-                //                
-                
+                else
+                {
+                    for(int i = 0; i < 14; i++)
+                    {
+                        if(i <= 3)
+                        {
+                            GPSuser.ano[i] = data[i];
+                            if(i + 1 == 4)
+                            {
+                                GPSuser.ano[i + 1] = '\0';
+                            }
+                        }
+                        else if (i > 3 && i < 6)
+                        {
+                            GPSuser.mes[i-4] = data[i];
+                            if(i + 1 == 6)
+                            {
+                                GPSuser.mes[i - 3] = '\0';
+                            }
+                        }
+                        else if (i > 5 && i < 8)
+                        {
+                            GPSuser.dia[i-6] = data[i];
+                            if(i + 1 == 8)
+                            {
+                                GPSuser.dia[i - 5] = '\0';
+                            }
+                        }
+                        else if (i > 7)
+                        {
+                            GPSuser.horap[i-8] = data[i];
+                            if(i + 1 == 14)
+                            {
+                                GPSuser.horap[i - 7] = '\0';
+                            }
+                        }
+                    }
+                    // Linhas de Teste
+                    printf("Dados: \n");
+                    //printf("Data: %s \n", data);
+                    printf("Hora, Dia, Mes, Ano \n %s %s/%s/%s \n", GPSuser.horap, GPSuser.dia, GPSuser.mes, GPSuser.ano);
+                    printf("Latitude: %s \n", GPSuser.latitu);
+                    printf("Longitude: %s \n", GPSuser.longitu);
+                    vtst++;
+                    //     
+                }
             }
             else
-                printf("FAIL\n");                      
-            state = 1;
+                printf("FAIL\n");
+            if(vtst == 15)
+                state = 3;
+            else                      
+                state = 1;
+            break;
+        case 3:
+            // Desligamento do GPS para trabalhar com LTE.
+            ack = sendReceive("AT+CGNSPWR?\r", "",3, COMPARE_RETURN);            
+            xQueueReceive(xQueueCaboGPS, caboGPS, 300);
+            printf("Status GPS:\n%s\n", caboGPS->status);
+            verif = strstr(caboGPS->status, "1");
+            if(verif != 0)
+            {
+                ack = sendReceive("AT+CGNSPWR=0\r", "",3, COMPARE_NONE);
+                verif = 0;
+            }
+            else
+                state = 4;
+            break;
+        case 4:
+            // Verificação LTE.
+            ack = sendReceive("AT+CGNSPWR?\r", "",3, COMPARE_RETURN);            
+            xQueueReceive(xQueueCaboGPS, caboGPS, 300);
+            printf("Status GPS:\n%s\n", caboGPS->status);
+            verif = strstr(caboGPS->status, "1");
+            if(verif != 0)
+            {
+                ack = sendReceive("AT+CGNSPWR=0\r", "",3, COMPARE_NONE);
+                verif = 0;
+            }
+            else
+                state = 4;
             break;
         default:
             state=0;
@@ -639,7 +735,10 @@ void app_main(void)
 {
     
     //Allow other core to finish initialization
-    vTaskDelay(pdMS_TO_TICKS(100));    
+    vTaskDelay(pdMS_TO_TICKS(100));   
+
+    gpio_reset_pin(4);
+    gpio_set_direction(4, GPIO_MODE_DEF_OUTPUT); 
 
     //Create semaphores to synchronize
     sync_spin_task = xSemaphoreCreateCounting(NUM_OF_SPIN_TASKS, 0);
