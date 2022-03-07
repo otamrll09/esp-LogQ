@@ -236,7 +236,7 @@ typedef enum{
     COMPARE_RETURN,
     COMPARE_CONTAINS,
 }COMPARE;
-char recBuff[256];
+char recBuff[512];
 #define sendReceiveBuff() (char *)&recBuff[0]
 int sendReceive(char * sendCmd, char * waitResp, int trys, COMPARE bCompare)
 {
@@ -489,7 +489,11 @@ static void GSM_C(void *arg)
     int col = 0;
     int bg = 0;
     int vtst = 0;
-    char data[25];    
+    int ret = 0;
+    char data[25];
+    char netp[25];
+    char bands[50];
+    char ver[25];     
     struct datasimpl
     {
         char latitu[25];
@@ -501,7 +505,7 @@ static void GSM_C(void *arg)
     };
     struct datasimpl GPSuser;
     printf("p3\n");
-
+    state = 3;
     while (1)
     {
         xSemaphoreGive(sync_stats_task);
@@ -625,8 +629,11 @@ static void GSM_C(void *arg)
             }
             else
                 printf("FAIL\n");
-            if(vtst == 15)
+            if(vtst == 3)
+            {
                 state = 3;
+                vtst = 0;
+            }                
             else                      
                 state = 1;
             break;
@@ -634,7 +641,7 @@ static void GSM_C(void *arg)
             // Desligamento do GPS para trabalhar com LTE.
             ack = sendReceive("AT+CGNSPWR?\r", "",3, COMPARE_RETURN);            
             xQueueReceive(xQueueCaboGPS, caboGPS, 300);
-            printf("Status GPS:\n%s\n", caboGPS->status);
+            printf("Status LTE:\n%s\n", caboGPS->status);
             verif = strstr(caboGPS->status, "1");
             if(verif != 0)
             {
@@ -656,7 +663,288 @@ static void GSM_C(void *arg)
                 verif = 0;
             }
             else
-                state = 4;
+                state = 5;
+            break;
+        case 5:
+            col = 0;
+            bg = 0;
+            ack = sendReceive("AT+CPSI?\r", "",3, COMPARE_RETURN);
+            xQueueReceive(xQueueCaboGPS, caboGPS, 300);
+            printf("Status GPS:\n%s\n", caboGPS->status);
+            sprintf(mensagem, caboGPS->status);
+            for(int i = 0; mensagem[i] != '\0'; i++ )
+            {
+                if(mensagem[i] == ':')
+                {
+                    col++;
+                    bg = i;                    
+                }
+                else if(mensagem[i+2] == ',')
+                {
+                    col++;
+                }
+                if(col == 1)
+                {
+                    netp[i - bg] = mensagem[i+2];
+                    if(mensagem[i+3] == ',')
+                    {                        
+                        netp[i + 1 - bg] = '\0';                   
+                    }
+                }
+                else if (col == 2)
+                {                    
+                    //state = 5;
+                    ret = strcmp(netp,"NO SERVICE");
+                    if(ret == 0)
+                    {
+                        state = 5;
+                        printf("Msg: %s\n", netp);
+                    }
+                        
+                    else
+                    {
+                        state = 6;
+                        printf("No Compare %s\n", netp);
+                    }
+                        
+                }
+                    
+
+            }
+            /*if(vtst == 3)
+            {
+                //state =5;
+                vtst = 0;
+            }                
+            else
+                vtst++;*/
+            break;
+        case 6:
+            col = 0;
+            bg = 0;
+            ack = sendReceive("AT+CBANDCFG?\r", "",3, COMPARE_RETURN);
+            xQueueReceive(xQueueCaboGPS, caboGPS, 300);
+            printf("Status GPS:\n%s\n", caboGPS->status);
+            sprintf(mensagem, caboGPS->status);
+            for(int i = 0; mensagem[i] != '\0'; i++ )
+            {
+                if(mensagem[i] == ':')
+                {
+                    col++;
+                    bg = i;                    
+                }
+                else if(mensagem[i+2] == ',' && col == 1)
+                {
+                    col++;
+                }
+                if(col == 1)
+                {
+                    ver[i - bg] = mensagem[i+2];
+                    if(mensagem[i+3] == ',')
+                    {                        
+                        ver[i + 1 - bg] = '\0';                   
+                    }
+                }
+                else if (col == 2)
+                {
+                    ret = 0;
+                    //state = 5;
+                    ret = strcmp(ver,"\"CAT-M\"");
+                    if(ret == 0)
+                    {
+                        state = 5;
+                        printf("Msg: %s\n", ver);
+                        
+                    }
+                        
+                    else
+                    {
+                        state = 5;
+                        printf("No Compare %s\n", ver);
+                    }
+                        
+                }
+            }
+            //state = 5;
+            break;
+        case 7:
+            /*col = 0;
+            bg = 0;
+            ack = sendReceive("AT+CBANDCFG?\r", "",3, COMPARE_RETURN);
+            xQueueReceive(xQueueCaboGPS, caboGPS, 300);
+            sprintf(mensagem, caboGPS->status);
+            printf("NetWork:\n%s\n", caboGPS->status);
+             for(int i = 0; mensagem[i] != '\0'; i++ )
+            {
+                if(mensagem[i] == ',')
+                {
+                    bg = i;
+                    netp[i - bg] = mensagem[i -1];
+                    netp[i - bg + 1] = mensagem[i];
+                    netp[i - bg + 2] = mensagem[i + 2];
+                    netp[i - bg + 3] = '\0';
+                        if(mensagem[i+1] == ',' || mensagem[i+2] == '\0')
+                        {                        
+                            data[i + 1 - bg] = '\0';                   
+                        }
+                }
+            }*/
+            
+            ack = sendReceive("AT+CFUN=1,0\r", "",3, COMPARE_RETURN);
+            vTaskDelay(pdMS_TO_TICKS(703));
+            ack = sendReceive("AT+CGDCONT=1,\"IP\",\"java.claro.com.br\",\"0.0.0.0\"\r", "",3, COMPARE_RETURN);
+            //ack = sendReceive("AT+CNACT=0,1\r", "",3, COMPARE_RETURN);
+            vTaskDelay(pdMS_TO_TICKS(703));
+            ack = sendReceive("AT+CGPADDR\r", "",3, COMPARE_RETURN);
+            vTaskDelay(pdMS_TO_TICKS(703));
+            ack = sendReceive("AT+CGDCONT?\r", "",3, COMPARE_RETURN);
+            //vTaskDelay(pdMS_TO_TICKS(703));
+            //ack = sendReceive("AT+CACID=0\r", "",3, COMPARE_RETURN);
+            vTaskDelay(pdMS_TO_TICKS(703));
+            ack = sendReceive("AT+CNCFG=0,1,\"IoTLog\"\r", "",3, COMPARE_RETURN);
+            vTaskDelay(pdMS_TO_TICKS(1703));
+            ack = sendReceive("AT+CGACT=1,1\r", "",3, COMPARE_RETURN);
+            vTaskDelay(pdMS_TO_TICKS(1703));
+            ack = sendReceive("AT+CGACT?\r", "",3, COMPARE_RETURN);
+            vTaskDelay(pdMS_TO_TICKS(1703));
+            ack = sendReceive("AT+CPSI?\r", "",3, COMPARE_RETURN);
+            vTaskDelay(pdMS_TO_TICKS(1703));
+            ack = sendReceive("AT+CGPADDR\r", "",3, COMPARE_RETURN);
+            vTaskDelay(pdMS_TO_TICKS(1703));
+            ack = sendReceive("AT+CNACT=0,1\r", "",3, COMPARE_RETURN);
+            
+            /*
+            //ack = sendReceive("AT+CFUN=0\r", "",3, COMPARE_RETURN);
+            //vTaskDelay(pdMS_TO_TICKS(2703));
+            ack = sendReceive("AT+CGDCONT=1,\"IP\",\"IoTLog\" \r", "",3, COMPARE_RETURN);
+            vTaskDelay(pdMS_TO_TICKS(1703));
+            //ack = sendReceive("AT+CFUN=1,0\r", "",3, COMPARE_RETURN);
+            //vTaskDelay(pdMS_TO_TICKS(2703));
+            ack = sendReceive("AT+CGATT?\r", "",3, COMPARE_RETURN);
+            vTaskDelay(pdMS_TO_TICKS(1503));
+            ack = sendReceive("AT+CGNAPN\r", "",3, COMPARE_RETURN);
+            vTaskDelay(pdMS_TO_TICKS(1703));
+            ack = sendReceive("AT+CNCFG=0,1,\"IoTLog\"\r", "",3, COMPARE_RETURN);
+            vTaskDelay(pdMS_TO_TICKS(1703));
+            ack = sendReceive("AT+CGNAPN\r", "",3, COMPARE_RETURN);
+            vTaskDelay(pdMS_TO_TICKS(1703));
+            ack = sendReceive("AT+CNACT=0,1\r", "",3, COMPARE_RETURN);
+            vTaskDelay(pdMS_TO_TICKS(1703));
+            ack = sendReceive("AT+CNACT?\r", "",3, COMPARE_RETURN);
+            */
+            /*
+            ack = sendReceive("AT+CPIN?\r", "READY",3, COMPARE_EQUAL);
+            vTaskDelay(pdMS_TO_TICKS(1703));
+            ack = sendReceive("AT+CSQ\r", "",3, COMPARE_RETURN);
+            vTaskDelay(pdMS_TO_TICKS(1703));
+            ack = sendReceive("AT+CGATT?\r", "",3, COMPARE_RETURN);
+            vTaskDelay(pdMS_TO_TICKS(1703));
+            ack = sendReceive("AT+COPS?\r", "",3, COMPARE_RETURN);
+            vTaskDelay(pdMS_TO_TICKS(1703));
+            ack = sendReceive("AT+CGNAPN\r", "",3, COMPARE_RETURN);
+            vTaskDelay(pdMS_TO_TICKS(1703));
+            ack = sendReceive("AT+CNCFG=0,1,\"IoTLog\"\r", "",3, COMPARE_RETURN);
+            vTaskDelay(pdMS_TO_TICKS(1703));
+            ack = sendReceive("AT+CNACT=0,1\r", "",3, COMPARE_RETURN);
+            vTaskDelay(pdMS_TO_TICKS(1703));
+            ack = sendReceive("AT+CNACT? \r", "",3, COMPARE_RETURN);
+            */
+
+            vTaskDelay(pdMS_TO_TICKS(1703));
+            ack = sendReceive("AT+SNPDPID=0\r", "",3, COMPARE_RETURN);
+            for(int i = 0; i<2;i++)
+            {
+                vTaskDelay(pdMS_TO_TICKS(1703));
+                ack = sendReceive("AT+SNPING4=\"8.8.8.8\",5,1,20000\r", "",3, COMPARE_RETURN);
+            }
+            if(vtst >= 0)
+            {
+                state =8;
+                vtst = 0;
+            }                
+            else
+                vtst++;
+            break;
+        case 8:
+            ack = sendReceive("AT+CGREG?\r", "",3, COMPARE_RETURN);
+            if(vtst >= 0)
+            {
+                state =10;
+                vtst = 0;
+            }                
+            else
+                vtst++;
+            break; 
+        case 9:
+            //ack = sendReceive("AT+SMCONF?\r", "",3, COMPARE_RETURN);
+            //ack = sendReceive("AT+SMCONF=?\r", "",3, COMPARE_RETURN);
+            vTaskDelay(pdMS_TO_TICKS(503));            
+            if(vtst == 0)
+            {
+                ack = sendReceive("AT+SMCONF=\"URL\",\"mqtt3.thingspeak.com\",\"1883\"\r", "",3, COMPARE_RETURN);             
+            }
+            else if(vtst == 1)
+            {
+                ack = sendReceive("AT+SMCONF=\"KEEPTIME\",60\r", "",3, COMPARE_RETURN);             
+            }
+            else if(vtst == 2)
+            {
+                ack = sendReceive("AT+SMCONF=\"CLEANSS\",1\r", "",3, COMPARE_RETURN);                
+            }
+            else if(vtst == 3)
+            {
+                ack = sendReceive("AT+SMCONF=\"CLIENTID\",\"Exw1Ni8LOS8IKQsVCzAtNQY\"\r", "",3, COMPARE_RETURN);         
+            }
+            else if(vtst == 4)
+            {
+                ack = sendReceive("AT+SMCONF=\"QOS\",0\r", "",3, COMPARE_RETURN);             
+            } 
+            else if(vtst == 5)
+            {
+                ack = sendReceive("AT+SMCONF=\"TOPIC\",\"channels/1639540/publish\"\r", "",3, COMPARE_RETURN);                            
+            }
+            else if(vtst == 6)
+            {
+                ack = sendReceive("AT+SMCONF=\"USERNAME\",\"Exw1Ni8LOS8IKQsVCzAtNQY\"\r", "",3, COMPARE_RETURN);             
+            }
+            else if(vtst == 7)
+            {
+                ack = sendReceive("AT+SMCONF=\"PASSWORD\",\"WBaqO3TrzAwA5e75ScpKVL12\"\r", "",3, COMPARE_RETURN);            
+            }
+            else if(vtst == 8)
+            {
+                state = 10;
+                vtst = 0;          
+            }                   
+            else
+            {
+                vtst = -1;
+            }                
+            vtst++;
+            break;
+         case 10:
+            //ack = sendReceive("AT+CGNAPN\r", "",3, COMPARE_RETURN);
+            ack = sendReceive("AT+CNACT?\r", "",3, COMPARE_RETURN);    
+            vTaskDelay(pdMS_TO_TICKS(1703));
+            //ack = sendReceive("AT+SMCONN\r", "",3, COMPARE_RETURN);
+            ack = sendReceive("AT+CPSI?\r", "",3, COMPARE_RETURN);
+            if(vtst >= 0)
+            {
+                state = 11;
+                vtst = 0;
+            }                
+            else
+                vtst++;
+            break;
+        case 11:
+            //ack = sendReceive("AT+SMCONN\r", "",3, COMPARE_RETURN);
+            if(vtst >= 0)
+            {
+                state =5;
+                vtst = 0;
+            }                
+            else
+                vtst++;
             break;
         default:
             state=0;
