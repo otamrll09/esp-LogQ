@@ -1,4 +1,4 @@
-# Install script for directory: C:/esp/esp-idf/Projetos/Freetest/real_time_stats/main
+# Install script for directory: C:/esp/esp-idf/Projetos/esp-LogQ/main
 
 # Set the install prefix
 if(NOT DEFINED CMAKE_INSTALL_PREFIX)

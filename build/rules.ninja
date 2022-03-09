@@ -1512,7 +1512,7 @@ rule C_STATIC_LIBRARY_LINKER____idf_main
 # Rule for re-running cmake.
 
 rule RERUN_CMAKE
-  command = C:\esp\tools\.espressif\tools\cmake\3.16.4\bin\cmake.exe -SC:\esp\esp-idf\Projetos\Freetest\real_time_stats -BC:\esp\esp-idf\Projetos\Freetest\real_time_stats\build
+  command = C:\esp\tools\.espressif\tools\cmake\3.16.4\bin\cmake.exe -SC:\esp\esp-idf\Projetos\esp-LogQ -BC:\esp\esp-idf\Projetos\esp-LogQ\build
   description = Re-running CMake...
   generator = 1
 

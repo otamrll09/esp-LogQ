@@ -1,8 +1,8 @@
 {
     "project_name":       "bootloader",
     "project_path":       "C:/esp/esp-idf/components/bootloader/subproject",
-    "build_dir":          "C:/esp/esp-idf/Projetos/Freetest/real_time_stats/build/bootloader",
-    "config_file":        "C:/esp/esp-idf/Projetos/Freetest/real_time_stats/sdkconfig",
+    "build_dir":          "C:/esp/esp-idf/Projetos/esp-LogQ/build/bootloader",
+    "config_file":        "C:/esp/esp-idf/Projetos/esp-LogQ/sdkconfig",
     "config_defaults":    "",
     "app_elf":            "bootloader.elf",
     "app_bin":            "bootloader.bin",

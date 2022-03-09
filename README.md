@@ -1,72 +1,28 @@
-# FreeRTOS Real Time Stats Example
+# Log Quality Follower
+O projeto denominado como 'Log Quality Follower' tem como objetivo realizar o rastreio de cargas nos mais diversos locais com a utilização de sinal GPS que deverá informar a localidade, data e horario, alem desses o sistema tambem poderá entregar informações da qualidade da viagem como o nivel de vibração pela qual o material transportado está sendo submetido durante seu trejeto.
 
-(See the README.md file in the upper level 'examples' directory for more information about examples.)
+A principio o projeto conta com desenvolvimento baseado na placa DEMO LilyGO-T-SIM7000g, a qual é descrevida no item referente ao hardware e tambem pode ser melhor estudade através do seu repositorio proprio:
+https://github.com/Xinyuan-LilyGO/LilyGO-T-SIM7000G
 
-FreeRTOS provides the function `vTaskGetRunTimeStats()` to obtain CPU usage statistics of tasks. However, these statistics are with respect to the entire runtime of FreeRTOS (i.e. **run time stats**). Furthermore, statistics of `vTaskGetRunTimeStats()` are only valid whilst the timer for run time statistics has not overflowed.
+### Hardware Describe
+O projeto foi desenvolvido com base em uma DEMO Board de ESP32 chamada de T-SIM7000g (2020 04 15)
 
-This example demonstrates how to get CPU usage statistics of tasks with respect to a specified duration (i.e. **real time stats**) rather than over the entire runtime of FreeRTOS. The `print_real_time_stats()` function of this example demonstrates how this can be achieved.
+![T-SIM7000G-2021](https://user-images.githubusercontent.com/81943185/150889211-c1098896-2e1c-43e8-9965-a58b85a1e52e.jpg)
 
-## How to use example
+A placa possui como principais chips:
+    ESP32-WROVER-B
+    SIM7070g
 
-### Hardware Required
+O hardware tambem possui controle de carga de bateria por sistema solar
+O chip responsavel pelo controle de carga de bateria é:
+    DW01FA
 
-This example should be able to run on any commonly available ESP32 development board.
+A placa possui:
+    Um dock para baterias 18650;
+    Uma entrada USB tipo C;
+    Conector para Antena LTE;
+    Conector para antena GPS;
+    Dock para MicroSD Card;
+    Dock para NanoSIM card.
 
 ### Configure the project
-
-```
-idf.py menuconfig
-```
-
-* Select `Enable FreeRTOS to collect run time stats` under `Component Config > FreeRTOS` (this should be enabled in the example by default)
-
-* `Choose the clock source for run time stats` configured under `Component Config > FreeRTOS`. The `esp_timer` should be selected be default. This option will affect the time unit resolution in which the statistics are measured with respect to.
-
-### Build and Flash
-
-Build the project and flash it to the board, then run monitor tool to view serial output:
-
-```
-idf.py -p PORT flash monitor
-```
-
-(Replace PORT with the name of the serial port to use.)
-
-(To exit the serial monitor, type ``Ctrl-]``.)
-
-See the Getting Started Guide for full steps to configure and use ESP-IDF to build projects.
-
-## Example Output
-
-The example should have the following log output:
-
-```
-...
-Getting real time stats over 100 ticks
-| Task | Run Time | Percentage
-| stats | 1304 | 0%
-| IDLE0 | 206251 | 10%
-| IDLE1 | 464785 | 23%
-| spin2 | 225389 | 11%
-| spin0 | 227174 | 11%
-| spin4 | 225303 | 11%
-| spin1 | 207264 | 10%
-| spin3 | 225331 | 11%
-| spin5 | 225369 | 11%
-| Tmr Svc | 0 | 0%
-| esp_timer | 0 | 0%
-| ipc1 | 0 | 0%
-| ipc0 | 0 | 0%
-Real time stats obtained
-...
-```
-
-## Example Breakdown
-
-### Spin tasks
-
-During the examples initialization process, multiple `spin` tasks are created. These tasks will simply spin a certain number of CPU cycles to consume CPU time, then block for a predetermined period.
-
-### Understanding the stats
-
-From the log output, it can be seen that the spin tasks consume nearly an equal amount of time over the specified stats collection period of `print_real_time_stats()`. The real time stats also display the CPU time consumption of other tasks created by default in ESP-IDF (e.g. `IDLE` and `ipc` tasks).
