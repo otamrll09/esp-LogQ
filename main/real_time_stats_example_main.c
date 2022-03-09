@@ -32,25 +32,27 @@
 //Define para SIM7070
 
 #define TINY_GSM_MODEM_SIM7070
-//#define UART_BAUD           115200
+#define UART_BAUD           9600
 #define PIN_TX              27
 #define PIN_RX              26
 #define BUF_SIZE (1024)
-//int16_t msg_GSM[1024];
-//int16_t *datap = msg_GSM;
-//char *datap = (char *) malloc(1024);
+#define ROT_BUF_SIZE (1024)
+#define EX_UART_NUM UART_NUM_2
+#define PATTERN_CHR_NUM    (3) /*!< Set the number of consecutive and identical characters received by receiver which defines a UART pattern*/
 
 static char task_names[NUM_OF_SPIN_TASKS][configMAX_TASK_NAME_LEN];
 static SemaphoreHandle_t sync_spin_task;
 static SemaphoreHandle_t sync_stats_task;
 QueueHandle_t xQueueCaboGPS;
+static QueueHandle_t uart0_queue;
 
 uart_config_t uart_config = {
-    .baud_rate = 9600,
+    .baud_rate = UART_BAUD,
     .data_bits = UART_DATA_8_BITS,
     .parity    = UART_PARITY_DISABLE,
     .stop_bits = UART_STOP_BITS_1,
-    .flow_ctrl = UART_HW_FLOWCTRL_DISABLE
+    .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
+    .source_clk = UART_SCLK_APB,
 };
 
 /**
@@ -76,6 +78,8 @@ uart_config_t uart_config = {
  *  - ESP_ERR_INVALID_SIZE  Insufficient array size for uxTaskGetSystemState. Trying increasing ARRAY_SIZE_OFFSET
  *  - ESP_ERR_INVALID_STATE Delay duration too short
  */
+
+// Basic Code
 static esp_err_t print_real_time_stats(TickType_t xTicksToWait)
 {
     TaskStatus_t *start_array = NULL, *end_array = NULL;
@@ -160,6 +164,7 @@ exit:    //Common return path
     return ret;
 }
 
+// Basic Code
 static void spin_task(void *arg)
 {
     xSemaphoreTake(sync_spin_task, portMAX_DELAY);
@@ -172,6 +177,7 @@ static void spin_task(void *arg)
     }
 }
 
+// Basic Code
 static void stats_task(void *arg)
 {
     xSemaphoreTake(sync_stats_task, portMAX_DELAY);
@@ -194,7 +200,7 @@ static void stats_task(void *arg)
     }
 }
 
-//Task Blink para teste (OMM)
+// Task Blink para teste (OMM)
 static void blink_tsk(void *arg)
 {
     xSemaphoreTake(sync_stats_task, portMAX_DELAY);
@@ -222,6 +228,7 @@ static void blink_tsk(void *arg)
     }
 }
 
+// Definições para Task sendReceive
 typedef struct GPS_Inf
 {
  char UTCdt[18];
@@ -238,15 +245,17 @@ typedef enum{
 }COMPARE;
 char recBuff[512];
 #define sendReceiveBuff() (char *)&recBuff[0]
+
+// Task sendReceive
 int sendReceive(char * sendCmd, char * waitResp, int trys, COMPARE bCompare)
 {
     int len;
     int idx = 0; 
     int trysTmp=0;
     char *recStr=0;
-    //GPSDados envio;
-    GPSDados *pvEnvio = malloc(sizeof(GPSDados));
     
+    //Queue formato: GPSDados
+    //GPSDados *pvEnvio = malloc(sizeof(GPSDados));
     len = strlen(sendCmd);
     if (len > 256) {
         return -1;
@@ -264,11 +273,14 @@ int sendReceive(char * sendCmd, char * waitResp, int trys, COMPARE bCompare)
         return -4;
     
     // Envia
-    uart_flush(UART_NUM_2);
+    //uart_flush(UART_NUM_2);
     printf("%s\n", sendCmd);
     uart_write_bytes(UART_NUM_2, sendCmd, strlen(sendCmd));
+    //uart_write_bytes(EX_UART_NUM, sendCmd, UART_DATA);
     uart_wait_tx_done(UART_NUM_2, pdMS_TO_TICKS(100));
-
+    xSemaphoreGive(sync_stats_task);
+    //vTaskDelay(pdMS_TO_TICKS(500));
+    /*
     do {
 
         trysTmp++;
@@ -278,7 +290,7 @@ int sendReceive(char * sendCmd, char * waitResp, int trys, COMPARE bCompare)
             if ((recBuff[idx]=='\r') || (recBuff[idx]=='\n') || (recBuff[idx]=='\0')) {
                 if (idx>1) {
                     recBuff[idx] = '\0';
-                    printf("\t%s\n", recBuff);
+                    //printf("\t%s\n", recBuff);
                     strcpy(pvEnvio->status, recBuff);
                     xQueueSend(xQueueCaboGPS, pvEnvio, 1000);
 
@@ -329,10 +341,11 @@ int sendReceive(char * sendCmd, char * waitResp, int trys, COMPARE bCompare)
             printf("\t(Tentativa %d)\n", trysTmp);
         }
     }while(1);
+    */
     return -99;
 }
 
-
+// Função Reset do módulo GSM
 void GSM_Reset(int tock)
 {
     if(tock == 2)
@@ -367,6 +380,113 @@ void GSM_Reset(int tock)
     }
 }
 
+//char rotBuff[1024];
+char dtmp[ROT_BUF_SIZE];
+
+// Task leitura automatica serial
+static void UART_SIM(void *arg)
+{
+    //Inicio das tasks tipo spin
+    for (int i = 0; i< NUM_OF_SPIN_TASKS; i++){
+        xSemaphoreGive(sync_spin_task);
+    }
+    int UARTSt = 0;
+    bool endLine = false;
+    int posReadUART = 0;
+    //GSM_Reset(2);
+    //Queue formato: GPSDados
+    GPSDados *pvEnvio = malloc(sizeof(GPSDados));
+
+    uart_event_t event;
+    size_t buffered_size;
+    //uint8_t* dtmp = (uint8_t*) malloc(ROT_BUF_SIZE);
+    while (1)
+    {
+        //printf(".U.\n");
+        /* code */
+        if(xQueueReceive(uart0_queue, (void * )&event, (TickType_t)portMAX_DELAY)) {
+            bzero(dtmp, ROT_BUF_SIZE);            
+            switch(event.type) {
+                //Event of UART receving data
+                /*We'd better handler data event fast, there would be much more data events than
+                other types of events. If we take too much time on data event, the queue might
+                be full.*/
+                case UART_DATA:
+                    //printf("NewUART\n");
+                    uart_read_bytes(EX_UART_NUM,(char *)&dtmp, event.size, portMAX_DELAY);
+                    strcpy(pvEnvio->status, dtmp);
+                    xQueueSend(xQueueCaboGPS, pvEnvio, 1000);
+                    printf("prepos: %s\n end\n", dtmp);
+                    //uart_write_bytes(EX_UART_NUM, (const char*) dtmp, event.size);
+                    break;
+                //Event of HW FIFO overflow detected
+                case UART_FIFO_OVF:
+                    //ESP_LOGI(TAG, "hw fifo overflow");
+                    printf("hw fifo overflow\n");
+                    // If fifo overflow happened, you should consider adding flow control for your application.
+                    // The ISR has already reset the rx FIFO,
+                    // As an example, we directly flush the rx buffer here in order to read more data.
+                    uart_flush_input(EX_UART_NUM);
+                    xQueueReset(uart0_queue);
+                    break;
+                //Event of UART ring buffer full
+                case UART_BUFFER_FULL:
+                    //ESP_LOGI(TAG, "ring buffer full");
+                    printf("ring buffer full\n");
+                    // If buffer full happened, you should consider encreasing your buffer size
+                    // As an example, we directly flush the rx buffer here in order to read more data.
+                    uart_flush_input(EX_UART_NUM);
+                    xQueueReset(uart0_queue);
+                    break;
+                //Event of UART RX break detected
+                case UART_BREAK:
+                    //ESP_LOGI(TAG, "uart rx break");
+                    printf("uart rx break\n");
+                    break;
+                //Event of UART parity check error
+                case UART_PARITY_ERR:
+                    //ESP_LOGI(TAG, "uart parity error");
+                    printf("uart parity error\n");
+                    break;
+                //Event of UART frame error
+                case UART_FRAME_ERR:
+                    //ESP_LOGI(TAG, "uart frame error");
+                    printf("uart frame error\n");
+                    break;
+                //UART_PATTERN_DET
+                case UART_PATTERN_DET:
+                    uart_get_buffered_data_len(EX_UART_NUM, &buffered_size);
+                    int pos = uart_pattern_pop_pos(EX_UART_NUM);
+                    //ESP_LOGI(TAG, "[UART PATTERN DETECTED] pos: %d, buffered size: %d", pos, buffered_size);
+                    printf("[UART PATTERN DETECTED] pos: %d, buffered size: %d\n", pos, buffered_size);
+                    if (pos == -1) {
+                        // There used to be a UART_PATTERN_DET event, but the pattern position queue is full so that it can not
+                        // record the position. We should set a larger queue size.
+                        // As an example, we directly flush the rx buffer here.
+                        uart_flush_input(EX_UART_NUM);
+                    } else {
+                        uart_read_bytes(EX_UART_NUM, dtmp, pos, 100 / portTICK_PERIOD_MS);
+                        uint8_t pat[PATTERN_CHR_NUM + 1];
+                        memset(pat, 0, sizeof(pat));
+                        uart_read_bytes(EX_UART_NUM, pat, PATTERN_CHR_NUM, 100 / portTICK_PERIOD_MS);
+                        //ESP_LOGI(TAG, "read data: %s", dtmp);
+                        //ESP_LOGI(TAG, "read pat : %s", pat);
+                        printf("read data: %s\n", dtmp);
+                        printf("read pat : %s\n", pat);
+                    }
+                    break;
+                //Others
+                default:
+                    //ESP_LOGI(TAG, "uart event type: %d", event.type);
+                    printf("uart event type: %d\n", event.type);
+                    break;
+            }
+        }
+        //xSemaphoreGive(sync_stats_task);
+        //vTaskDelay(pdMS_TO_TICKS(250));
+    }
+}
+
 static void GSM_C(void *arg)
 {
     xSemaphoreTake(sync_stats_task, portMAX_DELAY);
@@ -377,44 +497,31 @@ static void GSM_C(void *arg)
     }
     printf("p1\n");
     int errc = 0;
-
+    /*
     // Set serial ESP32 e SIM7070G       
     uart_param_config(UART_NUM_2, &uart_config);
     uart_set_pin(UART_NUM_2, PIN_TX, PIN_RX, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
     uart_driver_install(UART_NUM_2, BUF_SIZE * 2, 0, 0, NULL, 0);
-    
+    */
     //Reset Modem GSM
     //gpio_reset_pin(4);
-    //gpio_set_direction(4, GPIO_MODE_DEF_OUTPUT);
-    /*
-    gpio_set_level(4,1);
-    xSemaphoreGive(sync_stats_task);
-    vTaskDelay(pdMS_TO_TICKS(1500));
-    gpio_set_level(4,0);
-    printf("\rReset Modem GSM\n");
-    xSemaphoreGive(sync_stats_task);
-    vTaskDelay(pdMS_TO_TICKS(5000));
-    gpio_set_level(4,1);
-    xSemaphoreGive(sync_stats_task);
-    vTaskDelay(pdMS_TO_TICKS(1500));
-    gpio_set_level(4,0);
-
-    xSemaphoreGive(sync_stats_task);
-    vTaskDelay(pdMS_TO_TICKS(1000));
-    */
+    //gpio_set_direction(4, GPIO_MODE_DEF_OUTPUT);    
 
     GSM_Reset(2);
-    
+    xSemaphoreGive(sync_stats_task);
+    vTaskDelay(pdMS_TO_TICKS(5000));
+
     printf("p2\n");
+    int uaband = UART_BAUD;
     int len = 0;
     uint8_t redeb = 0;
     char mensagem[256];
-    sprintf(mensagem, "AT+IPR=9600\r");
+    sprintf(mensagem, "AT+IPR=%i\r", uaband);
     len = uart_read_bytes(UART_NUM_2, datap, BUF_SIZE, pdMS_TO_TICKS(100));
 
     //Set Baud rate
     errc = 0;
-    printf("Set auto-baud rate");
+    printf("Set auto-baud rate\n");
     while (redeb == 0)
     {
         uart_write_bytes(UART_NUM_2, (char *) mensagem, strlen(mensagem));        
@@ -439,13 +546,11 @@ static void GSM_C(void *arg)
         xSemaphoreGive(sync_stats_task);
         vTaskDelay(pdMS_TO_TICKS(2500));
     }
-    printf("Baud rate configurado.\n");        
+    printf("Baud rate configurado.\n");
     xSemaphoreGive(sync_stats_task);
     vTaskDelay(pdMS_TO_TICKS(50));
     //uart_write_bytes(UART_NUM_2, (const char *) "AT+IPR=9600\n", 12);
-    //int men = 0;
-    //int tent = 0;
-    //int tentdf = 0;
+    
     // Desativar ECHO (eco)
     sprintf(mensagem, "ATE0\r");
     printf("Escrita ECHO");
@@ -456,15 +561,13 @@ static void GSM_C(void *arg)
     {
         uart_write_bytes(UART_NUM_2, (char *) mensagem, strlen(mensagem));
         uart_wait_tx_done(UART_NUM_2, pdMS_TO_TICKS(500));
-        //men = 1;        
-        //tent = 0;
         if (len > 0)
         {
             printf("Leitura: %d\n", len);      
             printf("%ls", datap);            
             bzero(datap,1024);
             len = uart_read_bytes(UART_NUM_2, datap, BUF_SIZE, pdMS_TO_TICKS(100));
-            printf("Leitura: %d\n", len);
+            //printf("Leitura: %d\n", len);
             redeb = 1;
         }
         else if( errc == 15)
@@ -476,9 +579,10 @@ static void GSM_C(void *arg)
         }
         len = uart_read_bytes(UART_NUM_2, datap, BUF_SIZE, pdMS_TO_TICKS(100));
         xSemaphoreGive(sync_stats_task);
-        vTaskDelay(pdMS_TO_TICKS(1000));                 
+        vTaskDelay(pdMS_TO_TICKS(2000));                 
     }
-
+    xSemaphoreGive(sync_stats_task);
+    vTaskDelay(pdMS_TO_TICKS(500));
     // Inicio principais funções
     errc = 0;
 
@@ -513,7 +617,9 @@ static void GSM_C(void *arg)
         switch (state)
         {
         case 0:
+            //printf("p4\n");
             ack = sendReceive("AT+CGNSPWR?\r", "",3, COMPARE_RETURN);
+            //printf("p5\n");
             //ack = sendReceive("AT+CPSI?\r", "", 3, COMPARE_NONE);
             xQueueReceive(xQueueCaboGPS, caboGPS, 300);
             printf("Status GPS:\n%s\n", caboGPS->status);
@@ -639,7 +745,8 @@ static void GSM_C(void *arg)
             break;
         case 3:
             // Desligamento do GPS para trabalhar com LTE.
-            ack = sendReceive("AT+CGNSPWR?\r", "",3, COMPARE_RETURN);            
+            ack = sendReceive("AT+CGNSPWR?\r", "",3, COMPARE_RETURN);
+            xSemaphoreGive(sync_stats_task);                        
             xQueueReceive(xQueueCaboGPS, caboGPS, 300);
             printf("Status LTE:\n%s\n", caboGPS->status);
             verif = strstr(caboGPS->status, "1");
@@ -660,6 +767,8 @@ static void GSM_C(void *arg)
             if(verif != 0)
             {
                 ack = sendReceive("AT+CGNSPWR=0\r", "",3, COMPARE_NONE);
+                xSemaphoreGive(sync_stats_task);
+                vTaskDelay(pdMS_TO_TICKS(703));
                 verif = 0;
             }
             else
@@ -670,7 +779,7 @@ static void GSM_C(void *arg)
             bg = 0;
             ack = sendReceive("AT+CPSI?\r", "",3, COMPARE_RETURN);
             xQueueReceive(xQueueCaboGPS, caboGPS, 300);
-            printf("Status GPS:\n%s\n", caboGPS->status);
+            printf("\n%s\n", caboGPS->status);
             sprintf(mensagem, caboGPS->status);
             for(int i = 0; mensagem[i] != '\0'; i++ )
             {
@@ -708,8 +817,6 @@ static void GSM_C(void *arg)
                     }
                         
                 }
-                    
-
             }
             /*if(vtst == 3)
             {
@@ -724,7 +831,7 @@ static void GSM_C(void *arg)
             bg = 0;
             ack = sendReceive("AT+CBANDCFG?\r", "",3, COMPARE_RETURN);
             xQueueReceive(xQueueCaboGPS, caboGPS, 300);
-            printf("Status GPS:\n%s\n", caboGPS->status);
+            printf("Status BANDAS:\n%s\n", caboGPS->status);
             sprintf(mensagem, caboGPS->status);
             for(int i = 0; mensagem[i] != '\0'; i++ )
             {
@@ -794,23 +901,23 @@ static void GSM_C(void *arg)
             vTaskDelay(pdMS_TO_TICKS(703));
             ack = sendReceive("AT+CGDCONT=1,\"IP\",\"java.claro.com.br\",\"0.0.0.0\"\r", "",3, COMPARE_RETURN);
             //ack = sendReceive("AT+CNACT=0,1\r", "",3, COMPARE_RETURN);
-            vTaskDelay(pdMS_TO_TICKS(703));
+            //vTaskDelay(pdMS_TO_TICKS(703));
             ack = sendReceive("AT+CGPADDR\r", "",3, COMPARE_RETURN);
-            vTaskDelay(pdMS_TO_TICKS(703));
+            //vTaskDelay(pdMS_TO_TICKS(703));
             ack = sendReceive("AT+CGDCONT?\r", "",3, COMPARE_RETURN);
             //vTaskDelay(pdMS_TO_TICKS(703));
             //ack = sendReceive("AT+CACID=0\r", "",3, COMPARE_RETURN);
-            vTaskDelay(pdMS_TO_TICKS(703));
+            //vTaskDelay(pdMS_TO_TICKS(703));
             ack = sendReceive("AT+CNCFG=0,1,\"IoTLog\"\r", "",3, COMPARE_RETURN);
-            vTaskDelay(pdMS_TO_TICKS(1703));
+            //vTaskDelay(pdMS_TO_TICKS(1703));
             ack = sendReceive("AT+CGACT=1,1\r", "",3, COMPARE_RETURN);
-            vTaskDelay(pdMS_TO_TICKS(1703));
+            //vTaskDelay(pdMS_TO_TICKS(1703));
             ack = sendReceive("AT+CGACT?\r", "",3, COMPARE_RETURN);
-            vTaskDelay(pdMS_TO_TICKS(1703));
+            //vTaskDelay(pdMS_TO_TICKS(1703));
             ack = sendReceive("AT+CPSI?\r", "",3, COMPARE_RETURN);
-            vTaskDelay(pdMS_TO_TICKS(1703));
+            //vTaskDelay(pdMS_TO_TICKS(1703));
             ack = sendReceive("AT+CGPADDR\r", "",3, COMPARE_RETURN);
-            vTaskDelay(pdMS_TO_TICKS(1703));
+            //vTaskDelay(pdMS_TO_TICKS(1703));
             ack = sendReceive("AT+CNACT=0,1\r", "",3, COMPARE_RETURN);
             
             /*
@@ -950,62 +1057,9 @@ static void GSM_C(void *arg)
             state=0;
             continue;
         }
-    }
-    
-    
-    /*while (1) {    
-        xSemaphoreGive(sync_stats_task);
-        vTaskDelay(pdMS_TO_TICKS(1500));    
-        switch (state) {
-            case 0:
-                ack = sendReceive("ATE0\r", "OK", 2, COMPARE_EQUAL);
-                break;
-            case 1:
-                ack = sendReceive("AT+CGNSPWR=0\r", "OK", 2, COMPARE_EQUAL);
-                break;
-            case 2:
-                ack = sendReceive("AT+CGSN\r", "", 5, COMPARE_NONE);
-                break;
-            case 3:
-                ack = sendReceive("AT+COPS?\r", "COPS", 3, COMPARE_CONTAINS);
-                break;
-            case 4:
-                ack = sendReceive("AT+CSQ\r", "CSQ", 3, COMPARE_CONTAINS);
-                if (ack > 0) {
-                    printf("Meu retorno do CSQ = %s\n", sendReceiveBuff());
-                }
-                break;
-            case 5:
-                //ack = sendReceive("AT+CGNAPN=?\r", "", 3, COMPARE_NONE);
-                ack = sendReceive("AT+CPSI?\r", "", 3, COMPARE_NONE);
-                break;
-            case 6:
-                ack = sendReceive("AT+CMNB?\r", "", 3, COMPARE_NONE);
-                break;
-            case 7:
-                ack = sendReceive("AT+CNMP=38\r", "", 3, COMPARE_NONE);
-                break;
-            case 8:
-                ack = sendReceive("AT+CMNB=1\r", "", 3, COMPARE_NONE);
-                break;
-            case 9:
-                ack = sendReceive("AT+CGNSINF\r", "CGNSINF", 3, COMPARE_CONTAINS);
-                state=2;
-                break;
-            default:
-                state=2;
-                continue;
-        }
-        if (ack>=0) {
-            state++;
-        }
-        else {
-            printf("Erro = %d\n", ack);
-        }   
-    }*/
-
+    }    
 }
-
+/*
 void xTaskFunction (void * pvParameters)
 {
     xSemaphoreTake(sync_stats_task, portMAX_DELAY);
@@ -1017,14 +1071,26 @@ void xTaskFunction (void * pvParameters)
         vTaskDelay(pdMS_TO_TICKS(1803));
     }    
 }
-
+*/
 
 void app_main(void)
 {
-    
     //Allow other core to finish initialization
-    vTaskDelay(pdMS_TO_TICKS(100));   
+    vTaskDelay(pdMS_TO_TICKS(100)); 
 
+    // Set serial ESP32 e SIM7070G       
+    uart_param_config(EX_UART_NUM, &uart_config);
+    uart_set_pin(EX_UART_NUM, PIN_TX, PIN_RX, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
+    //uart_driver_install(EX_UART_NUM, BUF_SIZE * 2, 0, 0, NULL, 0);
+    uart_driver_install(EX_UART_NUM, BUF_SIZE * 2, BUF_SIZE * 2, 20, &uart0_queue, 0);
+    uart_flush(EX_UART_NUM);
+
+    //Set uart pattern detect function.
+    uart_enable_pattern_det_baud_intr(EX_UART_NUM, '+', PATTERN_CHR_NUM, 9, 0, 0);
+    //Reset the pattern queue length to record at most 20 pattern positions.
+    uart_pattern_queue_reset(EX_UART_NUM, 20);
+    
+    // Set GPIO
     gpio_reset_pin(4);
     gpio_set_direction(4, GPIO_MODE_DEF_OUTPUT); 
 
@@ -1037,24 +1103,24 @@ void app_main(void)
         snprintf(task_names[i], configMAX_TASK_NAME_LEN, "spin%d", i);
         xTaskCreatePinnedToCore(spin_task, task_names[i], 1024, NULL, SPIN_TASK_PRIO, NULL, tskNO_AFFINITY);
     }
+
     // Criacão Queues    
     struct GPS_Inf *pxMessage;
-
     xQueueCaboGPS = xQueueCreate(100, 2*sizeof(struct GPS_Inf));
     if(xQueueCaboGPS == 0){
         for(;;){printf("\nERROR QUEUE CABOGPS CREATE\n");}   
     }
-
     printf("\nQUEUE PASS\n");
     
-    //Criacão de Tasks
+    // ********** Criacão de Tasks **********
 
     //xTaskCreate(xTaskFunction,"TaskTest", 16000, NULL, STATS_TASK_PRIO, NULL );    
     //Create and start stats task
     xTaskCreatePinnedToCore(blink_tsk, "blinkOMM1", 4096, NULL, STATS_TASK_PRIO, NULL, tskNO_AFFINITY);
     //xTaskCreatePinnedToCore(stats_task, "stats", 4096, NULL, STATS_TASK_PRIO, NULL, tskNO_AFFINITY);
     xTaskCreatePinnedToCore(GSM_C, "GSM", 4096, NULL, STATS_TASK_PRIO, NULL, tskNO_AFFINITY);
-
+    xTaskCreatePinnedToCore(UART_SIM, "SERIAL", 4096, NULL, STATS_TASK_PRIO, NULL, tskNO_AFFINITY);
+    //xTaskCreate(UART_SIM, "SERIAL", 4096, NULL, 2, NULL);
     printf("TASK CREATE PASS\n");
     
     xSemaphoreGive(sync_stats_task);
@@ -1063,7 +1129,6 @@ void app_main(void)
     {
         vTaskDelay(pdMS_TO_TICKS(10));
     }
-    
 }
 
 
