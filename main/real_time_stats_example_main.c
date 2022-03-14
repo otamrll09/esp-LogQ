@@ -44,6 +44,7 @@ static char task_names[NUM_OF_SPIN_TASKS][configMAX_TASK_NAME_LEN];
 static SemaphoreHandle_t sync_spin_task;
 static SemaphoreHandle_t sync_stats_task;
 QueueHandle_t xQueueCaboGPS;
+QueueHandle_t xQueueProsinf;
 static QueueHandle_t uart0_queue;
 
 uart_config_t uart_config = {
@@ -234,6 +235,7 @@ typedef struct GPS_Inf
  char UTCdt[18];
  char latit[10];
  char longi[11];
+ int flam;
  char status[1024];
 } GPSDados;
 
@@ -378,30 +380,6 @@ void GSM_Reset(int tock)
         printf("\rInvalid Reset\n");
     }
 }
-/*
-void Berb (void *arg)
-{
-    while(endLine)
-    {
-        rocStr = strstr(dtmp, "\nOK");
-        //Não localizou
-        bzero(temp2, ROT_BUF_SIZE);
-        if (rocStr == 0) 
-        {
-            strcpy(temp2,dtmp);
-            strcat(pvEnvio->status, temp2);
-            context ++;
-        }
-        else if(context == 5)
-        {
-            endLine = false;
-        }
-        else
-        {
-            endLine = false;
-        }
-    }
-}*/
 
 //char rotBuff[1024];
 char dtmp[ROT_BUF_SIZE];
@@ -413,16 +391,13 @@ static void UART_SIM(void *arg)
     for (int i = 0; i< NUM_OF_SPIN_TASKS; i++){
         xSemaphoreGive(sync_spin_task);
     }
-    int UARTSt = 0;
-    bool endLine = true;
-    int posReadUART = 0;    
-
     //GSM_Reset(2);
     //Queue formato: GPSDados
     GPSDados *pvEnvio = malloc(sizeof(GPSDados));
 
     uart_event_t event;
     size_t buffered_size;
+    pvEnvio->flam = 0;
     //uint8_t* dtmp = (uint8_t*) malloc(ROT_BUF_SIZE);
     while (1)
     {
@@ -440,14 +415,21 @@ static void UART_SIM(void *arg)
                     //printf("NewUART\n");
                     uart_read_bytes(EX_UART_NUM,(char *)&dtmp, event.size, portMAX_DELAY);                    
                     strcpy(pvEnvio->status, dtmp);
+                    /*
                     if(xQueueReceive(uart0_queue, (void * )&event, (TickType_t)portMAX_DELAY))
                     {
                         uart_read_bytes(EX_UART_NUM,(char *)&dtmp, event.size, portMAX_DELAY);
                         strcat(pvEnvio->status, dtmp);
+                        pvEnvio->flam = 1;
                     }                        
-                    //xQueueSend(xQueueCaboGPS, pvEnvio, 1000);
-                    xQueueOverwrite(xQueueCaboGPS,pvEnvio);
-                    printf("prepos: %s\n end\n", pvEnvio->status);                    
+                    else
+                        pvEnvio->flam = 1;*/
+                    pvEnvio->flam = 1;
+                    //xQueueSend(xQueueProsinf, pvEnvio, 1000);
+                    xQueueOverwrite(xQueueProsinf, pvEnvio);
+                    //xQueueOverwrite(xQueueCaboGPS,pvEnvio);
+                    printf("Recebido ");
+                    pvEnvio->flam = 0;                   
                     //uart_write_bytes(EX_UART_NUM, (const char*) dtmp, event.size);
                     break;
                 //Event of HW FIFO overflow detected
@@ -518,6 +500,156 @@ static void UART_SIM(void *arg)
     }
 }
 
+static void ProMSG(void *arg)
+{
+    GPSDados *caboPro = malloc(sizeof(GPSDados));
+    GPSDados *caboEnv = malloc(sizeof(GPSDados));
+    int _refidx = 0;
+    int _refidx2 = 0;
+    int _msgw = 0;
+    char Buff1[1024];
+    char Buff2[1024];
+    char BuffID[64];
+    bool flag_ct = false;   // Flag de continuação de msg
+    bool flag_id = false;   // Flag para inicio de captura do ID
+    bool flag_gen = false;  // Flag para mensagens genéricas
+    bool flag_f = false;    // Flag de finalização
+    caboPro->flam = 0;
+    while (1)
+    {
+        /* code */        
+        if(!flag_ct)
+        {
+            printf("chorA ");
+            xQueueReceive(xQueueProsinf, caboPro, 300);
+        }
+        _refidx = 0;
+        //sprintf(Buff1, caboPro->status);
+        while(caboPro->flam == 1)
+        {
+            printf("Iniciando proscessamento: ");
+            sprintf(Buff1, caboPro->status);
+            printf("%s\n", Buff1);
+            if(!flag_ct)
+            {
+                printf("m1 ");
+                // Start - ID - Identificação do "nome" da mensagem.
+                for(int i = 0; i<= strlen(Buff1); i++)
+                {
+                    if(Buff1[i] == '+' && !flag_id)
+                    {
+                        _refidx = i;
+                        BuffID[i-_refidx] = Buff1[i];
+                        flag_gen = false;
+                        flag_id = true;
+                    }
+                    else if(flag_id)
+                    {
+                        BuffID[i-_refidx] = Buff1[i];
+                        if(Buff1[i+1] == ':')
+                        {
+                            flag_id = false;
+                            printf("ID: %s\n",BuffID);
+                            //strcpy(Buff2, Buff1);
+                            _refidx2 = _refidx2;
+                            for(int j = 0; j<= strlen(Buff1); j++)
+                            {
+                                if(Buff1[j] == '\0')
+                                {
+
+                                }
+                                else if((j + _refidx) < strlen(Buff1))
+                                {
+                                    Buff2[j] = Buff1[j+_refidx2];
+                                }
+                                else if((j + _refidx) == strlen(Buff1))
+                                {
+                                    Buff2[j] = Buff1[j+_refidx2];
+                                    _refidx2 = j;
+                                }
+                                else
+                                {
+                                    Buff2[j] = Buff1[j-_refidx2];
+                                    if(j == strlen(Buff1))
+                                        Buff2[j] = '\0';
+                                }
+                            }
+                        }
+                    }
+                    if(_refidx == 0 && (i == strlen(Buff1) || i+1 == strlen(Buff1)))
+                    {
+                        if(!flag_id)
+                        {
+                            printf("Generica ");
+                            flag_gen = true;
+                        }                        
+                    }
+                }
+                printf("m2\n");
+                // Zerando variaveis
+                _refidx = 0;
+                flag_ct = true;
+                // End - ID                
+            }
+            else
+            {
+                printf("m3 ");
+                for(int i = 0; i<= strlen(Buff2); i++)
+                {
+                    if(Buff2[i] == 'O' && Buff2[i+1] == 'K')
+                    {
+                        printf("Msg completa: %s\n",Buff2);
+                        strcpy(caboEnv->status, Buff2);
+                        caboEnv->flam = 1;
+                        xQueueSend(xQueueCaboGPS, caboEnv, 1000);
+                        caboEnv->flam = 0;
+                        caboPro->flam = 0;
+                        flag_f = true;
+                    }
+                    else if(!flag_gen && (i == strlen(Buff2) || i+1 == strlen(Buff2)) && !flag_f)
+                    {
+                        printf("Msg incompleta: %s\n",Buff2);
+                        //caboPro->flam = 0;
+                        //xQueueReceive(xQueueProsinf, caboPro, 300);
+                        _msgw = uxQueueMessagesWaiting(xQueueProsinf);
+                        if(_msgw != 0)
+                        {
+                            sprintf(Buff1, caboPro->status);
+                            strcat(Buff2, Buff1);
+                            i = 0;
+                        }
+                        else
+                        {
+                            printf("ERRO MSG PROS");
+                            caboEnv->flam = -1;
+                            xQueueSend(xQueueCaboGPS, caboEnv, 1000);
+                            caboEnv->flam = 0;
+                            caboPro->flam = 0;
+                            flag_f = true;
+                        }
+                    }
+                    else if (flag_gen && (i == strlen(Buff2) || i+1 == strlen(Buff2)))
+                    {
+                        strcpy(caboEnv->status, Buff2);
+                        caboEnv->flam = 1;
+                        xQueueSend(xQueueCaboGPS, caboEnv, 1000);
+                        caboEnv->flam = 0;
+                        caboPro->flam = 0;
+                        printf("Envio gen \n");
+                    }
+                }
+                flag_gen = false;
+                flag_f = false;
+                flag_ct = false;
+                bzero(Buff2, strlen(Buff2));
+                bzero(Buff1, strlen(Buff1));
+            }                
+        }
+        vTaskDelay(pdMS_TO_TICKS(213));
+    }
+    
+}
+
 static void GSM_C(void *arg)
 {
     xSemaphoreTake(sync_stats_task, portMAX_DELAY);
@@ -527,16 +659,7 @@ static void GSM_C(void *arg)
         xSemaphoreGive(sync_spin_task);
     }
     printf("p1\n");
-    int errc = 0;
-    /*
-    // Set serial ESP32 e SIM7070G       
-    uart_param_config(UART_NUM_2, &uart_config);
-    uart_set_pin(UART_NUM_2, PIN_TX, PIN_RX, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
-    uart_driver_install(UART_NUM_2, BUF_SIZE * 2, 0, 0, NULL, 0);
-    */
-    //Reset Modem GSM
-    //gpio_reset_pin(4);
-    //gpio_set_direction(4, GPIO_MODE_DEF_OUTPUT);    
+    int errc = 0;    
 
     GSM_Reset(2);
     xSemaphoreGive(sync_stats_task);
@@ -546,8 +669,8 @@ static void GSM_C(void *arg)
     int uaband = UART_BAUD;
     int len = 0;
     uint8_t redeb = 0;
-    char mensagem[256];
-    char msgtotal [256];
+    char mensagem[1024];
+    char msgtotal [1024];
     sprintf(mensagem, "AT+IPR=%i\r", uaband);
     len = uart_read_bytes(UART_NUM_2, datap, BUF_SIZE, pdMS_TO_TICKS(100));
 
@@ -603,7 +726,8 @@ static void GSM_C(void *arg)
             redeb = 1;
         }
         else if( errc == 15)
-            GSM_Reset(1);
+            redeb = 1;
+            //GSM_Reset(1);
         else
         {
             printf(" .");
@@ -615,6 +739,7 @@ static void GSM_C(void *arg)
     }
     xSemaphoreGive(sync_stats_task);
     vTaskDelay(pdMS_TO_TICKS(500));
+
     // Inicio principais funções
     errc = 0;
     bool checking = true;
@@ -778,8 +903,19 @@ static void GSM_C(void *arg)
         case 3:
             // Desligamento do GPS para trabalhar com LTE.
             ack = sendReceive("AT+CGNSPWR?\r", "",3, COMPARE_RETURN);
-            xSemaphoreGive(sync_stats_task);                        
+            //xSemaphoreGive(sync_stats_task);                        
             xQueueReceive(xQueueCaboGPS, caboGPS, 300);
+            while(caboGPS->flam == 0)
+            {
+                vTaskDelay(pdMS_TO_TICKS(703));
+                xQueueReceive(xQueueCaboGPS, caboGPS, 300);
+                if(caboGPS->flam == -1)
+                {
+                    ack = sendReceive("AT+CGNSPWR?\r", "",3, COMPARE_RETURN); 
+                    caboGPS->flam = 0;
+                }
+            }
+            caboGPS->flam = 0;
             printf("Status LTE:\n%s\n", caboGPS->status);
             verif = strstr(caboGPS->status, "1");
             if(verif != 0)
@@ -794,6 +930,17 @@ static void GSM_C(void *arg)
             // Verificação LTE.
             ack = sendReceive("AT+CGNSPWR?\r", "",3, COMPARE_RETURN);            
             xQueueReceive(xQueueCaboGPS, caboGPS, 300);
+            while(caboGPS->flam == 0)
+            {
+                vTaskDelay(pdMS_TO_TICKS(703));
+                xQueueReceive(xQueueCaboGPS, caboGPS, 300);
+                if(caboGPS->flam == -1)
+                {
+                    ack = sendReceive("AT+CGNSPWR?\r", "",3, COMPARE_RETURN);  
+                    caboGPS->flam = 0;
+                }
+            }
+            caboGPS->flam = 0;
             printf("Status GPS:\n%s\n", caboGPS->status);
             verif = strstr(caboGPS->status, "1");
             if(verif != 0)
@@ -810,6 +957,17 @@ static void GSM_C(void *arg)
             col = 0;
             bg = 0;
             ack = sendReceive("AT+CPSI?\r", "",3, COMPARE_RETURN);
+            while(caboGPS->flam == 0)
+            {
+                vTaskDelay(pdMS_TO_TICKS(703));
+                xQueueReceive(xQueueCaboGPS, caboGPS, 300);
+                if(caboGPS->flam == -1)
+                {
+                    ack = sendReceive("AT+CPSI?\r", "",3, COMPARE_RETURN);
+                    caboGPS->flam = 0;
+                }
+            }
+            caboGPS->flam = 0;
             xQueueReceive(xQueueCaboGPS, caboGPS, 300);
             printf("\n%s\n", caboGPS->status);
             sprintf(mensagem, caboGPS->status);
@@ -863,6 +1021,17 @@ static void GSM_C(void *arg)
             bg = 0;
             checking = true;
             ack = sendReceive("AT+CBANDCFG?\r", "",3, COMPARE_RETURN);
+            while(caboGPS->flam == 0)
+            {
+                vTaskDelay(pdMS_TO_TICKS(703));
+                xQueueReceive(xQueueCaboGPS, caboGPS, 300);
+                if(caboGPS->flam == -1)
+                {
+                    ack = sendReceive("AT+CBANDCFG?\r", "",3, COMPARE_RETURN);
+                    caboGPS->flam = 0;
+                }
+            }
+            caboGPS->flam = 0;
             //vTaskDelay(pdMS_TO_TICKS(5883));            
             bzero(msgtotal, strlen(msgtotal));
             do
@@ -1156,9 +1325,9 @@ void app_main(void)
         xTaskCreatePinnedToCore(spin_task, task_names[i], 1024, NULL, SPIN_TASK_PRIO, NULL, tskNO_AFFINITY);
     }
 
-    // Criacão Queues    
-    struct GPS_Inf *pxMessage;
+    // Criacão Queues
     xQueueCaboGPS = xQueueCreate(1, 2*sizeof(struct GPS_Inf));
+    xQueueProsinf = xQueueCreate(1, 1*sizeof(struct GPS_Inf));
     if(xQueueCaboGPS == 0){
         for(;;){printf("\nERROR QUEUE CABOGPS CREATE\n");}   
     }
@@ -1171,8 +1340,9 @@ void app_main(void)
     xTaskCreatePinnedToCore(blink_tsk, "blinkOMM1", 4096, NULL, STATS_TASK_PRIO, NULL, tskNO_AFFINITY);
     //xTaskCreatePinnedToCore(stats_task, "stats", 4096, NULL, STATS_TASK_PRIO, NULL, tskNO_AFFINITY);
     xTaskCreatePinnedToCore(GSM_C, "GSM", 4096, NULL, STATS_TASK_PRIO, NULL, tskNO_AFFINITY);
-    xTaskCreatePinnedToCore(UART_SIM, "SERIAL", 4096, NULL, 11, NULL, tskNO_AFFINITY);
+    xTaskCreatePinnedToCore(UART_SIM, "SERIAL", 4096, NULL, STATS_TASK_PRIO, NULL, tskNO_AFFINITY);    
     //xTaskCreate(UART_SIM, "SERIAL", 4096, NULL, 2, NULL);
+    xTaskCreatePinnedToCore(ProMSG, "Msg", 4096, NULL, STATS_TASK_PRIO, NULL, tskNO_AFFINITY);
     printf("TASK CREATE PASS\n");
     
     xSemaphoreGive(sync_stats_task);
